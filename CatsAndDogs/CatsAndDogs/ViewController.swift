@@ -5,6 +5,8 @@
 //  Created by a.akhmadiev on 09.11.2021.
 //
 
+import Combine
+import Kingfisher
 import SnapKit
 import UIKit
 
@@ -30,17 +32,17 @@ class ViewController: UIViewController {
     // MARK: Private properties
 
     private let segmentedControl = UISegmentedControl(items: ["Cats", "Dogs"])
-    let contentLabel: UILabel = {
+    private let contentLabel: UILabel = {
         let label = UILabel()
         label.text = "Content"
         label.numberOfLines = 0
+        label.textAlignment = .center
         return label
     }()
     private let contentImageView: UIImageView = {
         let view = UIImageView()
         view.clipsToBounds = true
-        view.contentMode = .scaleToFill
-        view.layer.masksToBounds = false
+        view.contentMode = .scaleAspectFill
         view.layer.borderWidth = Constants.borderWidth
         view.layer.cornerRadius = Constants.contentCornerRadius
         return view
@@ -50,6 +52,7 @@ class ViewController: UIViewController {
         button.backgroundColor = UIColor(red: 1, green: 0.609, blue: 0.542, alpha: 1)
         button.setTitle("More", for: .normal)
         button.layer.cornerRadius = Constants.buttonCornerRadius
+        button.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
         return button
     }()
     private let scoreLabel: UILabel = {
@@ -59,6 +62,7 @@ class ViewController: UIViewController {
         return label
     }()
     private var viewModel = ViewModel()
+    private var cancellable = Set<AnyCancellable>()
 
 
 
@@ -70,6 +74,7 @@ class ViewController: UIViewController {
 
         setupView()
         setupNavigationBar()
+        setupSubscribers()
         view.backgroundColor = .white
     }
 
@@ -93,8 +98,9 @@ class ViewController: UIViewController {
         }
 
         contentImageView.addSubview(contentLabel)
+        contentLabel.text = "Content"
         contentLabel.snp.makeConstraints {
-            $0.center.equalToSuperview()
+            $0.edges.equalToSuperview()
         }
 
         view.addSubview(moreButton)
@@ -114,25 +120,90 @@ class ViewController: UIViewController {
 
     private func setupNavigationBar() {
         navigationController?.navigationBar.prefersLargeTitles = true
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Reset", style: .plain, target: self, action: #selector(resetButtonTapped))
         title = "Cats and dogs"
     }
+
+
+    // MARK: Actions
 
     @objc private func didChangeIndexForSegmentedControl() {
         let index = segmentedControl.selectedSegmentIndex
         if index == 0 {
-
+            viewModel.type = .cats
         } else {
-
+            viewModel.type = .dogs
         }
     }
 
     @objc private func moreButtonTapped() {
-        let index = segmentedControl.selectedSegmentIndex
-        if index == 0 {
+        viewModel.fetchContent()
+    }
 
-        } else {
+    @objc func resetButtonTapped() {
+        viewModel.catsCount = 0
+        viewModel.dogsCount = 0
+        viewModel.text = nil
+        viewModel.imageURL = nil
+    }
 
-        }
+
+    // MARK: Setup subscribers
+
+    private func setupSubscribers() {
+
+        let typeSub = viewModel.$type
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] type in
+                guard let self = self else { return }
+                switch type {
+                case .cats:
+                    self.contentImageView.image = nil
+                    self.contentLabel.isHidden = false
+                    self.contentLabel.text = self.viewModel.text ?? "Content"
+
+                case .dogs:
+                    self.contentImageView.kf.setImage(with: self.viewModel.imageURL)
+                    self.contentLabel.isHidden = true
+                }
+            }
+
+        let textSub = viewModel.$text
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                self.contentLabel.isHidden = false
+                self.contentImageView.image = nil
+                self.contentLabel.text = self.viewModel.text ?? "Content"
+            }
+
+        let urlSub = viewModel.$imageURL
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] url in
+                guard let self = self else { return }
+                self.contentImageView.kf.setImage(with: url)
+                self.contentLabel.isHidden = true
+            }
+
+        let catsSub = viewModel.$catsCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                self.scoreLabel.text = "Score: \(self.viewModel.catsCount) cats and \(self.viewModel.dogsCount) dogs"
+            }
+
+        let dogsSub = viewModel.$dogsCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                self.scoreLabel.text = "Score: \(self.viewModel.catsCount) cats and \(self.viewModel.dogsCount) dogs"
+            }
+
+        cancellable.insert(typeSub)
+        cancellable.insert(textSub)
+        cancellable.insert(urlSub)
+        cancellable.insert(catsSub)
+        cancellable.insert(dogsSub)
     }
 }
 
